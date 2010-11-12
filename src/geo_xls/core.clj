@@ -15,7 +15,7 @@
   (:use clojure.contrib.base64)
   (:use clojure.java.shell))
 
-(def *spreadsheet-filename* "/home/gjohnson/school/phd/Geoserver_REST_database.xls")
+(def *spreadsheet-filename* "/home/gjohnson/code/clojure/projects/geo-xls/resources/Geoserver_REST_database.xls")
 
 (def *raster-column-spec*
      {:A :Workspace
@@ -262,22 +262,19 @@
                  (condp = store-type
                    "GeoTIFF"
                    ((juxt create-coverage-store
-                          create-coverage
-                          create-layer)
+                          create-coverage)
                     complete-row)
 
                    "Shapefile"
-                   ((juxt create-data-store
-                          create-feature-type
-                          create-layer)
+                   ((juxt create-shapefile-data-store
+                          create-shapefile-feature-type)
                     complete-row)
 
                    "PostGIS Table"
                    (throw (Exception. "Creating a PostGIS Data Store from a Shapefile is not yet supported."))
                
                    "PostGIS Database"
-                   ((juxt create-feature-type
-                          create-layer)
+                   (create-postgis-feature-type
                     complete-row)
 
                    :otherwise
@@ -286,9 +283,9 @@
                  (:Store row)
                  (condp = store-type
                      "GeoTIFF"          [(create-coverage-store complete-row)]
-                     "Shapefile"        [(create-data-store complete-row)]
-                     "PostGIS Table"    [(create-data-store complete-row)]
-                     "PostGIS Database" [(create-data-store complete-row)])
+                     "Shapefile"        [(create-shapefile-data-store complete-row)]
+                     "PostGIS Table"    [(create-postgis-data-store complete-row)]
+                     "PostGIS Database" [(create-postgis-data-store complete-row)])
 
                  (:Workspace row)
                  [(create-workspace-and-namespace complete-row)]
