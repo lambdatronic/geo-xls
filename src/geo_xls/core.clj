@@ -56,7 +56,7 @@
 (def *geoserver-username*     "admin")
 (def *geoserver-password*     "rnbh304")
 (def *geoserver-auth-code*    (str "Basic " (encode-str (str *geoserver-username* ":" *geoserver-password*))))
-(def *geoserver-data-dir*     "/raid/geoserver/")
+(def *geoserver-data-dir*     "/raid/geodata/")
 (def *aries-namespace-prefix* "http://www.integratedmodelling.org/geo/ns/")
 
 (defn get-store-type
@@ -216,12 +216,41 @@
 ;;             "Authorization" *geoserver-auth-code*}
 ;;   :body    URI])
 
+(defn run-gdal-info
+  [uri]
+  (with-sh-dir *geoserver-data-dir*
+    (:out (sh "gdalinfo" (extract-path uri)))))
+
+(defn dms->dd
+  [dms]
+  (let [[d m s dir] (map read-string (rest (re-find #"^([ \d]+)d([ \d]+)'([ \.0123456789]+)\"(\w)$" dms)))
+        unsigned-dd (float (+ d (/ m 60) (/ s 3600)))]
+    (if (#{'S 'W} dir)
+      (- unsigned-dd)
+      unsigned-dd)))
+
+(defn extract-georeferences
+  [uri]
+  (let [gdal-info (run-gdal-info uri)
+        native-crs-regex #"(?s)Coordinate System is:\s*\n(.+)Origin"
+        upper-left-regex #"(?s)Upper Left\s+\(\s*([\-\.0123456789]+),\s+([\-\.0123456789]+)\)\s+\(\s*([^,]+),\s*([^\)]+)\)"
+        lower-right-regex #"(?s)Lower Right\s+\(\s*([\-\.0123456789]+),\s+([\-\.0123456789]+)\)\s+\(\s*([^,]+),\s*([^\)]+)\)"
+        [nminx nmaxy llminx llmaxy] (rest (re-find upper-left-regex gdal-info))
+        [nmaxx nminy llmaxx llminy] (rest (re-find lower-right-regex gdal-info))]
+    {:nativeCRS (second (re-find native-crs-regex gdal-info))
+     :nminx     nminx
+     :nmaxx     nmaxx
+     :nminy     nminy
+     :nmaxy     nmaxy
+     :llminx    (str (dms->dd llminx))
+     :llmaxx    (str (dms->dd llmaxx))
+     :llminy    (str (dms->dd llminy))
+     :llmaxy    (str (dms->dd llmaxy))}))
+
 (defn create-coverage
   [{:keys [Workspace Store Layer Description URI NativeSRS DeclaredSRS]}]
   ;;(println "create-coverage" (str Workspace ":" Store ":" Layer))
-  (let [gdal-info (with-sh-dir *geoserver-data-dir*
-                    (:out (sh "gdalinfo" (extract-path URI))))]
-    (println "gdal-info:\n" gdal-info)
+  (let [gdal-info (extract-georeferences URI)]
     [(form-rest-uri (str "/workspaces/" Workspace "/coveragestores/" Store "/coverages"))
      :method  "POST"
      :headers {"Accepts"       "application/xml",
@@ -233,17 +262,37 @@
                                     [:description Description]
                                     [:abstract Description]
                                     [:enabled "true"]
-                                    [:srs DeclaredSRS]
-                                    [:projectionPolicy "FORCE_DECLARED"]
                                     [:keywords
                                      [:string "WCS"]
                                      [:string "GeoTIFF"]
                                      [:string (extract-filename URI)]]
-                                    [:metadata
-                                     [:entry {:key "dirName"} (extract-filename URI)]]
+                                    [:nativeCRS (:nativeCRS gdal-info)]
+                                    [:srs DeclaredSRS]
                                     [:nativeBoundingBox
+                                     [:minx (:nminx gdal-info)]
+                                     [:maxx (:nmaxx gdal-info)]
+                                     [:miny (:nminy gdal-info)]
+                                     [:maxy (:nmaxy gdal-info)]
                                      [:crs NativeSRS]]
+                                    [:latLonBoundingBox
+                                     [:minx (:llminx gdal-info)]
+                                     [:maxx (:llmaxx gdal-info)]
+                                     [:miny (:llminy gdal-info)]
+                                     [:maxy (:llmaxy gdal-info)]
+                                     [:crs "EPSG:4326"]]
+;;                                    [:projectionPolicy (if (not= NativeSRS DeclaredSRS) "FORCE_DECLARED" "KEEP_NATIVE")]
+;;                                    [:projectionPolicy "REPROJECT_NATIVE_TO_DECLARED"]
+                                    [:metadata
+                                     [:entry {:key "dirName"} (str Store "_" (extract-filename URI))]]
                                     [:nativeFormat "GeoTIFF"]
+                                    [:requestSRS
+                                     [:string "EPSG:4326"]
+                                     (if (not= DeclaredSRS "EPSG:4326")
+                                       [:string DeclaredSRS])]
+                                    [:responseSRS
+                                     [:string "EPSG:4326"]
+                                     (if (not= DeclaredSRS "EPSG:4326")
+                                       [:string DeclaredSRS])]
                                     ]))]))
 
 (defn translate-row
@@ -298,15 +347,19 @@
   (last (reduce translate-row [nil nil nil []] rows)))
 
 (defn rest-request
-  [uri method user passwd xml-body]
-  (http-agent uri
-              :method method
-              :headers {"Accepts"       "application/xml",
-                        "Content-type"  "application/xml",
-                        "Authorization" (str "Basic " (encode-str (str user ":" passwd)))}
-              :body xml-body))
+  [rest-spec]
+  (let [agnt (apply http-agent rest-spec)]
+    (await agnt)
+    [(status agnt) (message agnt) (string agnt)]))
 
-;;(defn -main
-;;  [& args]
-;;  (doseq [xml-body (rows->xml *raster-data*)]
-    
+(defn- main
+  [& args]
+  (let [raster-http-agents (for [row-instructions (rows->xml *raster-data*)
+                                 instruction row-instructions]
+                             (rest-request instruction))
+        vector-http-agents (for [row-instructions (rows->xml *vector-data*)
+                                 instruction row-instructions]
+                             (rest-request instruction))
+        all-http-agents (concat raster-http-agents vector-http-agents)]
+    (apply await all-http-agents)
+    (map (fn [agnt] [(status agnt) (message agnt) (string agnt)]) (filter error? all-http-agents))))
