@@ -15,42 +15,20 @@
   (:use clojure.contrib.base64)
   (:use clojure.java.shell))
 
-(def *spreadsheet-filename* "/home/gjohnson/code/clojure/projects/geo-xls/resources/Geoserver_REST_database.xls")
+;; ===== Begin global parameters =====
 
-(def *raster-column-spec*
+(def *spreadsheet-filename*  "/home/gjohnson/code/clojure/projects/geo-xls/resources/Geoserver_REST_database_combined.xls")
+(def *spreadsheet-sheetname* "Sheet1")
+
+(def *column-spec*
      {:A :Workspace
       :B :Store
-      :C :Layer
-      :D :Description
-      :E :URI
-      :F :DefaultStyle
-      :J :NativeSRS
-      :K :DeclaredSRS})
-
-(def *vector-column-spec*
-     {:A :Workspace
-      :B :Store
-      :C :Layer
+      :D :Layer
       :E :Description
       :F :URI
       :G :DefaultStyle
       :K :NativeSRS
       :L :DeclaredSRS})
-
-(defn load-column-data
-  [spreadsheet-filename sheet-name column-spec]
-  (->> (load-workbook spreadsheet-filename)
-       (select-sheet sheet-name)
-       (select-columns column-spec)
-       next))
-
-(def *raster-data* (load-column-data *spreadsheet-filename*
-                                     "Raster"
-                                     *raster-column-spec*))
-
-(def *vector-data* (load-column-data *spreadsheet-filename*
-                                     "Vector"
-                                     *vector-column-spec*))
 
 (def *geoserver-rest-uri*     "http://ecoinformatics.uvm.edu/geoserver/rest")
 (def *geoserver-username*     "admin")
@@ -59,12 +37,21 @@
 (def *geoserver-data-dir*     "/raid/geodata/")
 (def *aries-namespace-prefix* "http://www.integratedmodelling.org/geo/ns/")
 
+;; ===== End global parameters =====
+
+(defn load-column-data
+  [spreadsheet-filename sheet-name column-spec]
+  (->> (load-workbook spreadsheet-filename)
+       (select-sheet sheet-name)
+       (select-columns column-spec)
+       next))
+
 (defn get-store-type
   [uri]
   (condp re-matches uri
     #"^file:.*\.tif$"    "GeoTIFF"
     #"^file:.*\.shp$"    "Shapefile"
-    #"^postgis:.*\.shp$" "PostGIS Table"
+    #"^postgis:.*\.shp$" "PostGIS-converted Shapefile"
     #"^postgis:.*$"      "PostGIS Database"))
 
 (defn form-rest-uri
@@ -77,7 +64,7 @@
 
 (defn create-workspace-and-namespace
   [{:keys [Workspace]}]
-  ;;(println "create-workspace-and-namespace" Workspace)
+  (println "create-workspace-and-namespace" Workspace)
   [(form-rest-uri "/namespaces")
    :method  "POST"
    :headers {"Accepts"       "application/xml",
@@ -93,7 +80,7 @@
 
 (defn create-postgis-data-store
   [{:keys [Workspace Store Description URI]}]
-  ;;(println "create-postgis-data-store" (str Workspace ":" Store))
+  (println "create-postgis-data-store" (str Workspace ":" Store))
   [(form-rest-uri (str "/workspaces/" Workspace "/datastores"))
    :method  "POST"
    :headers {"Accepts"       "application/xml",
@@ -126,9 +113,13 @@
                                    [:entry {:key "Max open prepared statements"} "50"]
                                    ]]))])
 
+(defn create-postgis-data-store-from-shapefile
+  [row]
+  (throw (Exception. "Creating a PostGIS Data Store from a Shapefile is not yet supported.")))
+
 (defn create-shapefile-data-store
   [{:keys [Workspace Store Description URI]}]
-  ;;(println "create-shapefile-data-store" (str Workspace ":" Store))
+  (println "create-shapefile-data-store" (str Workspace ":" Store))
   [(form-rest-uri (str "/workspaces/" Workspace "/datastores"))
    :method  "POST"
    :headers {"Accepts"       "application/xml",
@@ -149,7 +140,7 @@
 
 (defn create-postgis-feature-type
   [{:keys [Workspace Store Layer Description NativeSRS DeclaredSRS]}]
-  ;;(println "create-postgis-feature-type" (str Workspace ":" Store ":" Layer))
+  (println "create-postgis-feature-type" (str Workspace ":" Store ":" Layer))
   [(form-rest-uri (str "/workspaces/" Workspace "/datastores/" Store "/featuretypes"))
    :method  "POST"
    :headers {"Accepts"       "application/xml",
@@ -167,7 +158,7 @@
 
 (defn create-shapefile-feature-type
   [{:keys [Workspace Store Layer Description NativeSRS DeclaredSRS]}]
-  ;;(println "create-shapefile-feature-type" (str Workspace ":" Store ":" Layer))
+  (println "create-shapefile-feature-type" (str Workspace ":" Store ":" Layer))
   [(form-rest-uri (str "/workspaces/" Workspace "/datastores/" Store "/featuretypes"))
    :method  "POST"
    :headers {"Accepts"       "application/xml",
@@ -185,7 +176,7 @@
 
 (defn create-coverage-store
   [{:keys [Workspace Store Description URI]}]
-  ;;(println "create-coverage-store" (str Workspace ":" Store))
+  (println "create-coverage-store" (str Workspace ":" Store))
   [(form-rest-uri (str "/workspaces/" Workspace "/coveragestores"))
    :method  "POST"
    :headers {"Accepts"       "application/xml",
@@ -205,16 +196,6 @@
 (defn extract-filename
   [uri]
   (second (re-find #"^file:.*/([^/]*).tif$" uri)))
-
-;;(defn create-coverage-via-put
-;;  [{:keys [Workspace Store Layer Description URI NativeSRS DeclaredSRS]}]
-;;  ;;(println "create-coverage-via-put" (str Workspace ":" Store ":" Layer))
-;;  [(form-rest-uri (str "/workspaces/" Workspace "/coveragestores/" Store "/external.geotiff?configure=first&coverageName=" Layer))
-;;   :method  "PUT"
-;;   :headers {"Accepts"       "*/*",
-;;             "Content-type"  "text/plain",
-;;             "Authorization" *geoserver-auth-code*}
-;;   :body    URI])
 
 (defn run-gdal-info
   [uri]
@@ -247,9 +228,19 @@
      :llminy    (str (dms->dd llminy))
      :llmaxy    (str (dms->dd llmaxy))}))
 
+;;(defn create-coverage-via-put
+;;  [{:keys [Workspace Store Layer Description URI NativeSRS DeclaredSRS]}]
+;;  ;;(println "create-coverage-via-put" (str Workspace ":" Store ":" Layer))
+;;  [(form-rest-uri (str "/workspaces/" Workspace "/coveragestores/" Store "/external.geotiff?configure=first&coverageName=" Layer))
+;;   :method  "PUT"
+;;   :headers {"Accepts"       "*/*",
+;;             "Content-type"  "text/plain",
+;;             "Authorization" *geoserver-auth-code*}
+;;   :body    URI])
+
 (defn create-coverage
   [{:keys [Workspace Store Layer Description URI NativeSRS DeclaredSRS]}]
-  ;;(println "create-coverage" (str Workspace ":" Store ":" Layer))
+  (println "create-coverage" (str Workspace ":" Store ":" Layer))
   (let [gdal-info (extract-georeferences URI)]
     [(form-rest-uri (str "/workspaces/" Workspace "/coveragestores/" Store "/coverages"))
      :method  "POST"
@@ -319,22 +310,21 @@
                           create-shapefile-feature-type)
                     complete-row)
 
-                   "PostGIS Table"
+                   "PostGIS-converted Shapefile"
                    (throw (Exception. "Creating a PostGIS Data Store from a Shapefile is not yet supported."))
-               
+
                    "PostGIS Database"
-                   (create-postgis-feature-type
-                    complete-row)
+                   [(create-postgis-feature-type complete-row)]
 
                    :otherwise
                    (throw (Exception. (str "Unrecognized URI: " uri))))
 
                  (:Store row)
                  (condp = store-type
-                     "GeoTIFF"          [(create-coverage-store complete-row)]
-                     "Shapefile"        [(create-shapefile-data-store complete-row)]
-                     "PostGIS Table"    [(create-postgis-data-store complete-row)]
-                     "PostGIS Database" [(create-postgis-data-store complete-row)])
+                     "GeoTIFF"                     [(create-coverage-store complete-row)]
+                     "Shapefile"                   [(create-shapefile-data-store complete-row)]
+                     "PostGIS-converted Shapefile" [(create-postgis-data-store-from-shapefile complete-row)]
+                     "PostGIS Database"            [(create-postgis-data-store complete-row)])
 
                  (:Workspace row)
                  [(create-workspace-and-namespace complete-row)]
@@ -343,23 +333,29 @@
                  (throw (Exception. "Unrecognized row specification: " row))))]))
 
 (defn rows->xml
-  [rows]
-  (last (reduce translate-row [nil nil nil []] rows)))
+  [spreadsheet-rows]
+  (last (reduce translate-row [nil nil nil []] spreadsheet-rows)))
 
-(defn rest-request
+(defn remove-comment-rows
+  [spreadsheet-rows]
+  (remove (fn [{workspace :Workspace}] (re-matches "^#.*" workspace)) spreadsheet-rows))
+
+(defn make-rest-request
   [rest-spec]
   (let [agnt (apply http-agent rest-spec)]
     (await agnt)
-    [(status agnt) (message agnt) (string agnt)]))
+    agnt))
 
-(defn- main
+(defn main
   [& args]
-  (let [raster-http-agents (for [row-instructions (rows->xml *raster-data*)
-                                 instruction row-instructions]
-                             (rest-request instruction))
-        vector-http-agents (for [row-instructions (rows->xml *vector-data*)
-                                 instruction row-instructions]
-                             (rest-request instruction))
-        all-http-agents (concat raster-http-agents vector-http-agents)]
-    (apply await all-http-agents)
-    (map (fn [agnt] [(status agnt) (message agnt) (string agnt)]) (filter error? all-http-agents))))
+  (let [row-data       (remove-comment-rows
+                        (load-column-data *spreadsheet-filename* *spreadsheet-sheetname* *column-spec*))
+        http-agents    (for [rest-specs (rows->xml row-data), rest-spec rest-specs]
+                         (make-rest-request rest-spec))
+        failed-agents  (filter error? http-agents)]
+    (println "Finished repopulating Geoserver.\nSuccessful requests:"
+             (- (count http-agents) (count failed-agents))
+             "\nFailed requests:" (count failed-agents)
+             "\n\nErrors:")
+    (doseq [agent-info (map (juxt status message string) (failed-agents))]
+      (println agent-info))))
