@@ -139,7 +139,7 @@
                                    ]]))])
 
 (defn create-postgis-feature-type
-  [{:keys [Workspace Store Layer Description NativeSRS DeclaredSRS]}]
+  [{:keys [Workspace Store Layer Description]}]
   (println "create-postgis-feature-type" (str Workspace ":" Store ":" Layer))
   [(form-rest-uri (str "/workspaces/" Workspace "/datastores/" Store "/featuretypes"))
    :method  "POST"
@@ -157,7 +157,7 @@
                                   ]))])
 
 (defn create-shapefile-feature-type
-  [{:keys [Workspace Store Layer Description NativeSRS DeclaredSRS]}]
+  [{:keys [Workspace Store Layer Description]}]
   (println "create-shapefile-feature-type" (str Workspace ":" Store ":" Layer))
   [(form-rest-uri (str "/workspaces/" Workspace "/datastores/" Store "/featuretypes"))
    :method  "POST"
@@ -187,6 +187,8 @@
                                   [:description Description]
                                   [:type "GeoTIFF"]
                                   [:enabled "true"]
+                                  [:workspace
+                                   [:name Workspace]]
                                   [:url URI]]))])
 
 (defn extract-path
@@ -210,26 +212,59 @@
       (- unsigned-dd)
       unsigned-dd)))
 
+(defn radians->degrees
+  [rads]
+  (/ (* rads 180.0) Math/PI))
+
 (defn extract-georeferences
   [uri]
   (let [gdal-info (run-gdal-info uri)
-        native-crs-regex #"(?s)Coordinate System is:\s*\n(.+)Origin"
-        upper-left-regex #"(?s)Upper Left\s+\(\s*([\-\.0123456789]+),\s+([\-\.0123456789]+)\)\s+\(\s*([^,]+),\s*([^\)]+)\)"
-        lower-right-regex #"(?s)Lower Right\s+\(\s*([\-\.0123456789]+),\s+([\-\.0123456789]+)\)\s+\(\s*([^,]+),\s*([^\)]+)\)"
-        [nminx nmaxy llminx llmaxy] (rest (re-find upper-left-regex gdal-info))
-        [nmaxx nminy llmaxx llminy] (rest (re-find lower-right-regex gdal-info))]
-    {:nativeCRS (second (re-find native-crs-regex gdal-info))
-     :nminx     nminx
-     :nmaxx     nmaxx
-     :nminy     nminy
-     :nmaxy     nmaxy
-     :llminx    (str (dms->dd llminx))
-     :llmaxx    (str (dms->dd llmaxx))
-     :llminy    (str (dms->dd llminy))
-     :llmaxy    (str (dms->dd llmaxy))}))
+        cols-rows-regex    #"(?s)Size is (\d+), (\d+)"
+        pixel-size-regex   #"(?s)Pixel Size = \(([\-\.0123456789]+),([\-\.0123456789]+)\)"
+        origin-regex       #"(?s)Origin = \(([\-\.0123456789]+),([\-\.0123456789]+)\)"
+
+        color-interp-regex #"(?s)ColorInterp=(\w+)"
+        native-crs-regex   #"(?s)Coordinate System is:\s*\n(.+)Origin"
+
+        upper-left-regex   #"(?s)Upper Left\s+\(\s*([\-\.0123456789]+),\s+([\-\.0123456789]+)\)\s+\(\s*([^,]+),\s*([^\)]+)\)"
+        lower-left-regex   #"(?s)Lower Left\s+\(\s*([\-\.0123456789]+),\s+([\-\.0123456789]+)\)\s+\(\s*([^,]+),\s*([^\)]+)\)"
+        upper-right-regex  #"(?s)Upper Right\s+\(\s*([\-\.0123456789]+),\s+([\-\.0123456789]+)\)\s+\(\s*([^,]+),\s*([^\)]+)\)"
+        lower-right-regex  #"(?s)Lower Right\s+\(\s*([\-\.0123456789]+),\s+([\-\.0123456789]+)\)\s+\(\s*([^,]+),\s*([^\)]+)\)"
+
+        [cols rows]                (rest (re-find cols-rows-regex  gdal-info))
+        [pixel-width pixel-height] (rest (re-find pixel-size-regex gdal-info))
+        [x-origin y-origin]        (rest (re-find origin-regex     gdal-info))
+
+        [ul-native-x ul-native-y ul-latlon-x ul-latlon-y] (rest (re-find upper-left-regex gdal-info))
+        [ll-native-x ll-native-y ll-latlon-x ll-latlon-y] (rest (re-find lower-left-regex gdal-info))
+        [ur-native-x ur-native-y ur-latlon-x ur-latlon-y] (rest (re-find upper-right-regex gdal-info))
+        [lr-native-x lr-native-y lr-latlon-x lr-latlon-y] (rest (re-find lower-right-regex gdal-info))
+
+        [ul-native-x ul-native-y] (map read-string [ul-native-x ul-native-y])
+        [ll-native-x ll-native-y] (map read-string [ll-native-x ll-native-y])
+        [ur-native-x ur-native-y] (map read-string [ur-native-x ur-native-y])
+        [lr-native-x lr-native-y] (map read-string [lr-native-x lr-native-y])]
+
+    {:cols-rows    (str cols " " rows)
+     :pixel-width  pixel-width
+     :pixel-height pixel-height
+     :x-origin     x-origin
+     :y-origin     y-origin
+     :color-interp (second (re-find color-interp-regex gdal-info))
+     :nativeCRS    (second (re-find native-crs-regex gdal-info))
+     :native-min-x (str (min ul-native-x ll-native-x))
+     :native-max-x (str (max ur-native-x lr-native-x))
+     :native-min-y (str (min ll-native-y lr-native-y))
+     :native-max-y (str (max ul-native-y ur-native-y))
+     :latlon-min-x (str (apply min (map dms->dd [ul-latlon-x ll-latlon-x])))
+     :latlon-max-x (str (apply max (map dms->dd [ur-latlon-x lr-latlon-x])))
+     :latlon-min-y (str (apply min (map dms->dd [ll-latlon-y lr-latlon-y])))
+     :latlon-max-y (str (apply max (map dms->dd [ul-latlon-y ur-latlon-y])))
+     :shear-x      (str (radians->degrees (Math/asin (/ (- ll-native-x ul-native-x) (- ul-native-y ll-native-y)))))
+     :shear-y      (str (radians->degrees (Math/asin (/ (- ur-native-y ul-native-y) (- ur-native-x ul-native-x)))))}))
 
 ;;(defn create-coverage-via-put
-;;  [{:keys [Workspace Store Layer Description URI NativeSRS DeclaredSRS]}]
+;;  [{:keys [Workspace Store Layer Description URI]}]
 ;;  ;;(println "create-coverage-via-put" (str Workspace ":" Store ":" Layer))
 ;;  [(form-rest-uri (str "/workspaces/" Workspace "/coveragestores/" Store "/external.geotiff?configure=first&coverageName=" Layer))
 ;;   :method  "PUT"
@@ -260,22 +295,50 @@
                                     [:nativeCRS (:nativeCRS gdal-info)]
                                     [:srs DeclaredSRS]
                                     [:nativeBoundingBox
-                                     [:minx (:nminx gdal-info)]
-                                     [:maxx (:nmaxx gdal-info)]
-                                     [:miny (:nminy gdal-info)]
-                                     [:maxy (:nmaxy gdal-info)]
-                                     [:crs NativeSRS]]
+                                     [:minx (:native-min-x gdal-info)]
+                                     [:maxx (:native-max-x gdal-info)]
+                                     [:miny (:native-min-y gdal-info)]
+                                     [:maxy (:native-max-y gdal-info)]
+                                     (if (and NativeSRS (not= NativeSRS "UNKNOWN"))
+                                       [:crs NativeSRS])
+                                     ]
                                     [:latLonBoundingBox
-                                     [:minx (:llminx gdal-info)]
-                                     [:maxx (:llmaxx gdal-info)]
-                                     [:miny (:llminy gdal-info)]
-                                     [:maxy (:llmaxy gdal-info)]
+                                     [:minx (:latlon-min-x gdal-info)]
+                                     [:maxx (:latlon-max-x gdal-info)]
+                                     [:miny (:latlon-min-y gdal-info)]
+                                     [:maxy (:latlon-max-y gdal-info)]
                                      [:crs "EPSG:4326"]]
 ;;                                    [:projectionPolicy (if (not= NativeSRS DeclaredSRS) "FORCE_DECLARED" "KEEP_NATIVE")]
-;;                                    [:projectionPolicy "REPROJECT_NATIVE_TO_DECLARED"]
+                                    [:projectionPolicy "REPROJECT_TO_DECLARED"]
                                     [:metadata
+                                     [:entry {:key "cachingEnabled"} "false"]
                                      [:entry {:key "dirName"} (str Store "_" (extract-filename URI))]]
                                     [:nativeFormat "GeoTIFF"]
+                                    [:grid {:dimension "2"}
+                                     [:range
+                                      [:low "0 0"]
+                                      [:high (:cols-rows gdal-info)]]
+                                     [:transform
+                                      [:scaleX (:pixel-width  gdal-info)]
+                                      [:scaleY (:pixel-height gdal-info)]
+                                      [:shearX (:shear-x gdal-info)]
+                                      [:shearY (:shear-y gdal-info)]
+                                      [:translateX (:x-origin gdal-info)]
+                                      [:translateY (:y-origin gdal-info)]]
+                                     [:crs DeclaredSRS]]
+                                    [:supportedFormats
+                                     [:string "GIF"]
+                                     [:string "PNG"]
+                                     [:string "JPEG"]
+                                     [:string "TIFF"]
+                                     [:string "GEOTIFF"]]
+                                    [:interpolationMethods
+                                     [:string "bilinear"]
+                                     [:string "bicubic"]]
+                                    [:dimensions
+                                     [:coverageDimension
+                                      [:name (.toUpperCase (str (:color-interp gdal-info) "_INDEX"))]
+                                      [:description "GridSampleDimension[-Infinity,Infinity]"]]]
                                     [:requestSRS
                                      [:string "EPSG:4326"]
                                      (if (not= DeclaredSRS "EPSG:4326")
@@ -338,24 +401,30 @@
 
 (defn remove-comment-rows
   [spreadsheet-rows]
-  (remove (fn [{workspace :Workspace}] (re-matches "^#.*" workspace)) spreadsheet-rows))
+  (remove (fn [{workspace :Workspace}] (and workspace (re-matches #"^#.*" workspace))) spreadsheet-rows))
 
 (defn make-rest-request
   [rest-spec]
+;;  (print (first rest-spec))
+;;  (flush)
   (let [agnt (apply http-agent rest-spec)]
     (await agnt)
+    (if (success? agnt)
+      (do (print "*") (flush))
+      (do (print "!") (flush)))
+;;    (newline)
     agnt))
 
-(defn main
-  [& args]
-  (let [row-data       (remove-comment-rows
-                        (load-column-data *spreadsheet-filename* *spreadsheet-sheetname* *column-spec*))
-        http-agents    (for [rest-specs (rows->xml row-data), rest-spec rest-specs]
-                         (make-rest-request rest-spec))
-        failed-agents  (filter error? http-agents)]
-    (println "Finished repopulating Geoserver.\nSuccessful requests:"
+(defn rebuild-geoserver
+  []
+  (let [spreadsheet-data (remove-comment-rows
+                          (load-column-data *spreadsheet-filename* *spreadsheet-sheetname* *column-spec*))
+        http-agents      (for [rest-specs (rows->xml spreadsheet-data), rest-spec rest-specs]
+                           (make-rest-request rest-spec))
+        failed-agents    (filter error? http-agents)]
+    (println "\nFinished repopulating Geoserver.\nSuccessful requests:"
              (- (count http-agents) (count failed-agents))
              "\nFailed requests:" (count failed-agents)
              "\n\nErrors:")
-    (doseq [agent-info (map (juxt status message string) (failed-agents))]
-      (println agent-info))))
+    (doseq [agent-info (map (juxt status message string) failed-agents)]
+             (println agent-info))))
