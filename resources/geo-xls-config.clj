@@ -1,5 +1,5 @@
 {
-  :spreadsheet-filename  "/home/gjohnson/code/clojure/projects/geo-xls/resources/Geoserver_REST_database_combined.xls"
+  :spreadsheet-filename  "/home/gjohnson/code/clojure/projects/geo-xls/resources/Geoserver_REST_database.xls"
   :spreadsheet-sheetname "Sheet1"
   :column-spec           {:A :Workspace
                           :B :Store
