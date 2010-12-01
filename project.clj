@@ -1,4 +1,4 @@
-(defproject org.clojars.lambdatronic/geo-xls "1.0.0-rc1"
+(defproject org.clojars.lambdatronic/geo-xls "1.0.0-rc2"
   :description "geo-xls is a simple command-line script which converts
                 a properly formatted XLS file (see README), describing
                 Workspaces, Data/Coverage Stores, and Layers into the
