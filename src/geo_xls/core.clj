@@ -17,13 +17,38 @@
         [clojure.contrib.http.agent   :only (http-agent success? error? status message string)]
         [dk.ative.docjure.spreadsheet :only (load-workbook select-sheet select-columns)]))
 
+(defn make-rest-request
+  [{:keys [geoserver-rest-uri geoserver-rest-http-headers]}
+   [http-method uri-suffix http-body]]
+  (let [agnt (http-agent (str geoserver-rest-uri uri-suffix)
+                         :method  http-method
+                         :headers (geoserver-rest-http-headers http-method)
+                         :body    http-body)]
+    (await agnt)
+    agnt))
+
+(defn remove-prefix
+  "If string begins with a + or -, returns the string without this
+   initial symbol."
+  [string]
+  (or (second (re-matches #"^[\+\-](.*)" string))
+      string))
+
 (defn create-workspace-and-namespace
   [{:keys [namespace-prefix]} {:keys [Workspace]}]
   (println "create-workspace-and-namespace" Workspace)
-  ["/namespaces"
+  ["POST"
+   "/namespaces"
    (with-out-str (prxml [:namespace
                          [:prefix Workspace]
                          [:uri (str namespace-prefix Workspace)]]))])
+
+(defn delete-workspace-and-namespace
+  [config-params {:keys [Workspace]}]
+  (println "delete-workspace-and-namespace" Workspace)
+  ["DELETE"
+   (str "/workspaces/" Workspace)
+   nil])
 
 (defn extract-dbname
   [uri]
@@ -32,7 +57,8 @@
 (defn create-postgis-data-store
   [{:keys [namespace-prefix]} {:keys [Workspace Store Description URI]}]
   (println "create-postgis-data-store" (str Workspace ":" Store))
-  [(str "/workspaces/" Workspace "/datastores")
+  ["POST"
+   (str "/workspaces/" Workspace "/datastores")
    (with-out-str (prxml [:dataStore
                          [:name Store]
                          [:description Description]
@@ -60,14 +86,50 @@
                           [:entry {:key "Max open prepared statements"} "50"]
                           ]]))])
 
-(defn create-postgis-data-store-from-shapefile
-  [config-params row]
-  (throw (Exception. "Creating a PostGIS Data Store from a Shapefile is not yet supported.")))
+(defn delete-postgis-data-store
+  [config-params {:keys [Workspace Store]}]
+  (println "delete-postgis-data-store" (str Workspace ":" Store))
+  ["DELETE"
+   (str "/workspaces/" Workspace "/datastores/" Store)
+   nil])
+
+(defn add-shapefile-to-postgis-db
+  [config-params {:keys [Workspace Store Layer URI]}]
+  (throw (Exception. (str "Adding a Shapefile to a PostGIS Database is not yet supported: "
+                          Workspace ":" Store ":" Layer " (" URI ")"))))
+
+(defn remove-shapefile-from-postgis-db
+  [config-params {:keys [Workspace Store Layer URI]}]
+  (throw (Exception. (str "Removing a Shapefile from a PostGIS Database is not yet supported: "
+                          Workspace ":" Store ":" Layer " (" URI ")"))))
+
+(defn create-postgis-feature-type
+  [config-params {:keys [Workspace Store Layer Description]}]
+  (println "create-postgis-feature-type" (str Workspace ":" Store ":" Layer))
+  ["POST"
+   (str "/workspaces/" Workspace "/datastores/" Store "/featuretypes")
+   (with-out-str (prxml [:featureType
+                         [:name Layer]
+                         [:nativeName Layer]
+                         [:title Description]
+                         [:abstract Description]
+                         [:enabled "true"]
+                         [:maxFeatures "0"]
+                         [:numDecimals "0"]
+                         ]))])
+
+(defn delete-postgis-feature-type
+  [config-params {:keys [Workspace Store Layer]}]
+  (println "delete-postgis-feature-type" (str Workspace ":" Store ":" Layer))
+  ["DELETE"
+   (str "/workspaces/" Workspace "/datastores/" Store "/featuretypes/" Layer)
+   nil])
 
 (defn create-shapefile-data-store
   [{:keys [namespace-prefix]} {:keys [Workspace Store Description URI]}]
   (println "create-shapefile-data-store" (str Workspace ":" Store))
-  [(str "/workspaces/" Workspace "/datastores")
+  ["POST"
+   (str "/workspaces/" Workspace "/datastores")
    (with-out-str (prxml [:dataStore
                          [:name Store]
                          [:description Description]
@@ -81,24 +143,18 @@
                           [:entry {:key "namespace"}            (str namespace-prefix Workspace)]
                           ]]))])
 
-(defn create-postgis-feature-type
-  [config-params {:keys [Workspace Store Layer Description]}]
-  (println "create-postgis-feature-type" (str Workspace ":" Store ":" Layer))
-  [(str "/workspaces/" Workspace "/datastores/" Store "/featuretypes")
-   (with-out-str (prxml [:featureType
-                         [:name Layer]
-                         [:nativeName Layer]
-                         [:title Description]
-                         [:abstract Description]
-                         [:enabled "true"]
-                         [:maxFeatures "0"]
-                         [:numDecimals "0"]
-                         ]))])
+(defn delete-shapefile-data-store
+  [config-params {:keys [Workspace Store]}]
+  (println "delete-shapefile-data-store" (str Workspace ":" Store))
+  ["DELETE"
+   (str "/workspaces/" Workspace "/datastores/" Store)
+   nil])
 
 (defn create-shapefile-feature-type
   [config-params {:keys [Workspace Store Layer Description]}]
   (println "create-shapefile-feature-type" (str Workspace ":" Store ":" Layer))
-  [(str "/workspaces/" Workspace "/datastores/" Store "/featuretypes")
+  ["POST"
+   (str "/workspaces/" Workspace "/datastores/" Store "/featuretypes")
    (with-out-str (prxml [:featureType
                          [:name Layer]
                          [:nativeName Store]
@@ -109,10 +165,25 @@
                          [:numDecimals "0"]
                          ]))])
 
+(defn create-shapefile-feature-type-via-put
+  [config-params {:keys [Workspace Store URI]}]
+  (println "create-shapefile-feature-type-via-put" (str Workspace ":" Store))
+  ["PUT"
+   (str "/workspaces/" Workspace "/datastores/" Store "/external.shp?configure=first")
+   URI])
+
+(defn delete-shapefile-feature-type
+  [config-params {:keys [Workspace Store Layer]}]
+  (println "delete-shapefile-feature-type" (str Workspace ":" Store ":" Layer))
+  ["DELETE"
+   (str "/workspaces/" Workspace "/datastores/" Store "/featuretypes/" Layer)
+   nil])
+
 (defn create-coverage-store
   [config-params {:keys [Workspace Store Description URI]}]
   (println "create-coverage-store" (str Workspace ":" Store))
-  [(str "/workspaces/" Workspace "/coveragestores")
+  ["POST"
+   (str "/workspaces/" Workspace "/coveragestores")
    (with-out-str (prxml [:coverageStore
                          [:name Store]
                          [:description Description]
@@ -121,6 +192,13 @@
                          [:workspace
                           [:name Workspace]]
                          [:url URI]]))])
+
+(defn delete-coverage-store
+  [config-params {:keys [Workspace Store]}]
+  (println "delete-coverage-store" (str Workspace ":" Store))
+  ["DELETE"
+   (str "/workspaces/" Workspace "/coveragestores/" Store)
+   nil])
 
 (defn extract-filename
   [uri]
@@ -198,7 +276,8 @@
   [{:keys [geoserver-data-dir]} {:keys [Workspace Store Layer Description URI NativeSRS DeclaredSRS]}]
   (println "create-coverage" (str Workspace ":" Store ":" Layer))
   (let [gdal-info (extract-georeferences geoserver-data-dir URI)]
-    [(str "/workspaces/" Workspace "/coveragestores/" Store "/coverages")
+    ["POST"
+     (str "/workspaces/" Workspace "/coveragestores/" Store "/coverages")
      (with-out-str (prxml [:coverage
                            [:name Layer]
                            [:title Description]
@@ -265,98 +344,159 @@
                               [:string DeclaredSRS])]
                            ]))]))
 
+(defn delete-coverage
+  [config-params {:keys [Workspace Store Layer]}]
+  (println "delete-coverage" (str Workspace ":" Store ":" Layer))
+  ["DELETE"
+   (str "/workspaces/" Workspace "/coveragestores/" Store "/coverages/" Layer)
+   nil])
+
+(defn delete-layer
+  [config-params {:keys [Workspace Store Layer]}]
+  (println "delete-layer" (str Workspace ":" Store ":" Layer))
+  ["DELETE"
+   (str "/layers/" Layer)
+   nil])
+
 (defn get-store-type
-  [uri]
-  (condp re-matches uri
+  "Returns a string describing the class of data or coverage store
+   implied by the structure of the passed-in URI."
+  [URI]
+  (condp re-matches URI
     #"^file:.*\.tif$"    "GeoTIFF"
     #"^file:.*\.shp$"    "Shapefile"
     #"^postgis:.*\.shp$" "PostGIS-converted Shapefile"
-    #"^postgis:.*$"      "PostGIS Database"))
+    #"^postgis:.*$"      "PostGIS Database"
+    :otherwise           (throw (Exception. (str "Unrecognized URI: " URI)))))
 
 (defn translate-row
-  [config-params [current-workspace current-store current-uri xml-rows] row]
-  (let [workspace    (or (:Workspace row) current-workspace)
-        store        (or (:Store     row) current-store)
-        uri          (or (:URI       row) current-uri)
-        store-type   (if uri (get-store-type uri))
-        complete-row (assoc row
-                       :Workspace workspace
-                       :Store     store
-                       :URI       uri)]
-    [workspace store uri
-     (conj xml-rows
-           (cond (:Layer row)
-                 (condp = store-type
-                   "GeoTIFF"
-                   ((juxt create-coverage-store
-                          create-coverage)
-                    config-params complete-row)
+  "Returns a vector of one or more REST request specifications as
+   triplets of [http-method uri-suffix http-body] depending on the
+   contents of the passed-in row."
+  [config-params {:keys [Workspace Store Layer URI Delete?] :as row}]
+  (if URI
+    (let [store-type (get-store-type URI)]
+      (cond Layer
+            (condp = store-type
+              "GeoTIFF"
+              (if Delete?
+                ((juxt delete-layer delete-coverage delete-coverage-store) config-params row)
+                ((juxt create-coverage-store create-coverage) config-params row))
 
-                   "Shapefile"
-                   ((juxt create-shapefile-data-store
-                          create-shapefile-feature-type)
-                    config-params complete-row)
+              "Shapefile"
+              (if Delete?
+                ((juxt delete-layer delete-shapefile-feature-type delete-shapefile-data-store) config-params row)
+                ((juxt create-shapefile-data-store create-shapefile-feature-type) config-params row))
 
-                   "PostGIS-converted Shapefile"
-                   ((juxt create-postgis-data-store-from-shapefile
-                          create-postgis-feature-type)
-                    config-params complete-row)
+              "PostGIS-converted Shapefile"
+              (if Delete?
+                ((juxt delete-layer delete-postgis-feature-type remove-shapefile-from-postgis-db) config-params row)
+                ((juxt add-shapefile-to-postgis-db create-postgis-feature-type) config-params row))
 
-                   "PostGIS Database"
-                   [(create-postgis-feature-type config-params complete-row)]
+              "PostGIS Database"
+              (if Delete?
+                ((juxt delete-layer delete-postgis-feature-type) config-params row)
+                [(create-postgis-feature-type config-params row)]))
 
-                   :otherwise
-                   (throw (Exception. (str "Unrecognized URI: " uri))))
+            Store
+            (if (= store-type "PostGIS Database")
+              (if Delete?
+                [(delete-postgis-data-store config-params row)]
+                [(create-postgis-data-store config-params row)])
+              (throw (Exception. (str "Cannot declare file-based store without layer on same row: " Workspace ":" Store " (" URI ")"))))
 
-                 (:Store row)
-                 (condp = store-type
-                     "GeoTIFF"                     [(create-coverage-store config-params complete-row)]
-                     "Shapefile"                   [(create-shapefile-data-store config-params complete-row)]
-                     "PostGIS-converted Shapefile" [(create-postgis-data-store-from-shapefile config-params complete-row)]
-                     "PostGIS Database"            [(create-postgis-data-store config-params complete-row)])
+            :otherwise (throw (Exception. (str "A row with a defined URI must also declare either a new Store or Layer: "
+                                               Workspace " (" URI ")")))))
 
-                 (:Workspace row)
-                 [(create-workspace-and-namespace config-params complete-row)]
-
-                 :otherwise
-                 (throw (Exception. "Unrecognized row specification: " row))))]))
+    (if (and Workspace
+             (nil? Store)
+             (nil? Layer))
+      (if Delete?
+        [(delete-workspace-and-namespace config-params row)]
+        [(create-workspace-and-namespace config-params row)])
+      (throw (Exception. "Rows without URIs must declare new workspaces: " row)))))
 
 (defn rows->xml
+  "Generates a sequence of REST request specifications as triplets of
+   [http-method uri-suffix http-body].  Each spreadsheet-row may
+   contribute one or more of these to the final sequence."
   [config-params spreadsheet-rows]
   (apply concat
-         (last
-          (reduce (partial translate-row config-params)
-                  [nil nil nil []]
-                  spreadsheet-rows))))
+         (map (partial translate-row config-params) spreadsheet-rows)))
 
-(defn make-rest-request
-  [{:keys [geoserver-rest-uri geoserver-auth-code]}
-   [uri-suffix xml-body]]
-  (let [agnt (http-agent (str geoserver-rest-uri uri-suffix)
-                         :method  "POST"
-                         :headers {"Accepts"       "application/xml",
-                                   "Content-type"  "application/xml",
-                                   "Authorization" geoserver-auth-code}
-                         :body    xml-body)]
-    (await agnt)
-    (if (success? agnt)
-      (do (print "*") (flush))
-      (do (print "!") (flush)))
-    agnt))
-
-(defn select-addition-rows
+(defn extract-plus-rows
+  "Selects all the spreadsheet-rows, whose :Workspace field begins
+   with a + and returns them with the + prefix removed."
   [spreadsheet-rows]
-  (filter (fn [{workspace :Workspace}] (and workspace (re-matches #"^\+.*" workspace))) spreadsheet-rows))
+  (map #(update-in % [:Workspace] remove-prefix)
+       (filter #(.startsWith (:Workspace %) "+") spreadsheet-rows)))
 
-(defn select-deletion-rows
+(defn extract-minus-rows
+  "Selects all the spreadsheet-rows, whose :Workspace field begins
+   with a -, removes the - prefix from this value, and adds the
+   key-value pair {:Delete? true} to each row's map."
   [spreadsheet-rows]
-  (filter (fn [{workspace :Workspace}] (and workspace (re-matches #"^\-.*" workspace))) spreadsheet-rows))
+  (map (comp #(assoc % :Delete? true)
+             #(update-in % [:Workspace] remove-prefix))
+       (filter #(.startsWith (:Workspace %) "-") spreadsheet-rows)))
+
+(defn select-active-rows
+  "Selects all the spreadsheet-rows, whose :Workspace field begins
+   with either a + or -.  Any rows found will have the + or - prefix
+   removed from their :Workspace values.  Rows with a - prefix will
+   also have the key-value pair {:Delete? true} added to their row
+   maps.  Rows with a - prefix will be sorted before those with the +
+   prefix in the returned sequence.  If no + or - rows exist, returns
+   all the spreadsheet-rows."
+  [spreadsheet-rows]
+  (let [plus-rows  (extract-plus-rows  spreadsheet-rows)
+        minus-rows (extract-minus-rows spreadsheet-rows)]
+    (if (and (empty? plus-rows) (empty? minus-rows))
+      spreadsheet-rows
+      (concat minus-rows plus-rows))))
+
+(defn complete-row
+  "Given two maps (previous-row and current-row), returns the
+   current-row map with any empty :Workspace, :Store, and :URI fields
+   filled in with the corresponding values from the previous-row map.
+   Any :Workspace fields beginning with a + or - will not propagate
+   this prefix symbol to its following row.  :Store and :URI field
+   values will not propagate to a row which declares a
+   new :Workspace."
+  [{prev-workspace-raw :Workspace prev-store :Store prev-uri :URI}
+   {curr-workspace-raw :Workspace curr-store :Store curr-uri :URI :as curr-row}]
+  (let [prev-workspace      (remove-prefix prev-workspace-raw)
+        curr-new-workspace? (if curr-workspace-raw (not (.isEmpty (remove-prefix curr-workspace-raw))))]
+    (assoc curr-row
+      :Workspace (if curr-workspace-raw
+                   (if curr-new-workspace?
+                     curr-workspace-raw
+                     (str curr-workspace-raw prev-workspace))
+                   prev-workspace)
+      :Store     (or curr-store (if-not curr-new-workspace? prev-store))
+      :URI       (or curr-uri   (if-not curr-new-workspace? prev-uri)))))
+
+(defn complete-rows
+  "Fills in empty Workspace, Store, and URI fields in each map in
+   spreadsheet-rows by propagating forward the values from earlier
+   maps to those which come immediately after them.  Never overwrites
+   a field which already has a value."
+  [spreadsheet-rows]
+  (rest (reductions complete-row {:Workspace ""} spreadsheet-rows)))
 
 (defn remove-comment-rows
+  "Removes any maps from the spreadsheet-rows vector, whose :Workspace
+   field begins with a #."
   [spreadsheet-rows]
-  (remove (fn [{workspace :Workspace}] (and workspace (re-matches #"^#.*" workspace))) spreadsheet-rows))
+  (remove (fn [{workspace :Workspace}] (and workspace (.startsWith workspace "#")))
+          spreadsheet-rows))
 
 (defn load-column-data
+  "Reads the columns in column-spec from sheet-name in
+   spreadsheet-filename.  Returns a vector of maps (one per row in the
+   spreadsheet), whose fields correspond to the columns read from the
+   spreadsheet.  Discards the first row in the sheet, assuming it only
+   contains the column headers."
   [spreadsheet-filename sheet-name column-spec]
   (->> (load-workbook spreadsheet-filename)
        (select-sheet sheet-name)
@@ -364,9 +504,22 @@
        next))
 
 (defn update-geoserver
+  "Loads the row data in from the spreadsheet according to
+   the :spreadsheet-filename, :spreadsheet-sheetname, and :column-spec
+   config-params.  Rows beginning with a # are ignored.  If any rows
+   begin with a + or -, then only those rows will be processed
+   further.  Otherwise, all spreadsheet rows will be processed by the
+   algorithm.  For each row to be processed, a triplet of [http-method
+   uri-suffix http-body] is created to describe the REST request that
+   will be sent to our geoserver for that row.  Each such pair is then
+   sent off as a REST request, and the number of successful and failed
+   requests is printed to STDOUT along with the error messages for any
+   failed requests."
   [{:keys [spreadsheet-filename spreadsheet-sheetname column-spec] :as config-params}]
   (let [http-agents   (->> (load-column-data spreadsheet-filename spreadsheet-sheetname column-spec)
                            remove-comment-rows
+                           complete-rows
+                           select-active-rows
                            (rows->xml config-params)
                            (map (partial make-rest-request config-params)))
         failed-agents (filter error? http-agents)]
@@ -379,16 +532,36 @@
       (println agent-info))))
 
 (defn read-config-params
+  "Opens config-file-path as a java.io.PushbackReader and calls the
+   Clojure Reader on it once in order to load the first object in the
+   file in as a Clojure data structure.  This object is returned."
   [config-file-path]
   (with-open [config-file (java.io.PushbackReader. (reader config-file-path))]
     (read config-file)))
 
 (defn -main
+  "AOT-compiled application entry point.
+   Call it with the name of a Clojure file containing the
+   config-params map.  The params will be read into a hash-map and
+   passed on to the update-geoserver function.  So that we only have
+   to calculate it once, the geoserver-auth-code is generated here
+   from the :geoserver-username and :geoserver-password fields in the
+   passed-in map and added to the in-memory hash-map under
+   the :geoserver-rest-http-headers entry."
   [config-file-path]
-  (let [config-params (read-config-params config-file-path)]
+  (let [config-params       (read-config-params config-file-path)
+        geoserver-auth-code (str "Basic " (encode-str (str (:geoserver-username config-params)
+                                                           ":"
+                                                           (:geoserver-password config-params))))]
     (update-geoserver
      (assoc config-params
-       :geoserver-auth-code
-       (str "Basic " (encode-str (str (:geoserver-username config-params)
-                                      ":"
-                                      (:geoserver-password config-params))))))))
+       :geoserver-rest-http-headers {"POST"   {"Accepts"       "application/xml"
+                                               "Content-type"  "application/xml"
+                                               "Authorization" geoserver-auth-code}
+                                     "PUT"    {"Accepts"       "*/*"
+                                               "Content-type"  "text/plain"
+                                               "Authorization" geoserver-auth-code}
+                                     "DELETE" {"Accepts"       "*/*"
+                                               "Content-type"  "*/*"
+                                               "Authorization" geoserver-auth-code}
+                                     }))))

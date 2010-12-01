@@ -3,7 +3,7 @@
   :spreadsheet-sheetname "Sheet1"
   :column-spec           {:A :Workspace
                           :B :Store
-                          :D :Layer
+                          :C :Layer
                           :E :Description
                           :F :URI
                           :G :DefaultStyle
