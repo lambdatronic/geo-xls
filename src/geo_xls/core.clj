@@ -10,11 +10,13 @@
 
 (ns geo-xls.core
   (:gen-class)
-  (:use [clojure.java.io              :only (reader)]
+  (:use [clojure.set                  :only (map-invert)]
+        [clojure.java.io              :only (reader)]
         [clojure.java.shell           :only (with-sh-dir sh)]
         [clojure.contrib.prxml        :only (prxml)]
         [clojure.contrib.base64       :only (encode-str)]
-        [clojure.contrib.http.agent   :only (http-agent success? error? status message string)]
+        [clojure.contrib.http.agent   :only (http-agent error? status message string)]
+        [clojure.contrib.command-line :only (with-command-line)]
         [dk.ative.docjure.spreadsheet :only (load-workbook select-sheet select-columns)]))
 
 (defn make-rest-request
@@ -500,7 +502,7 @@
   [spreadsheet-filename sheet-name column-spec]
   (->> (load-workbook spreadsheet-filename)
        (select-sheet sheet-name)
-       (select-columns column-spec)
+       (select-columns (map-invert column-spec))
        next))
 
 (defn update-geoserver
@@ -536,10 +538,18 @@
 (defn read-config-params
   "Opens config-file-path as a java.io.PushbackReader and calls the
    Clojure Reader on it once in order to load the first object in the
-   file in as a Clojure data structure.  This object is returned."
+   file in as a Clojure data structure.  If the object is a Clojure
+   map whose keys are keywords, it will be returned.  If
+   config-file-path is nil, returns {}."
   [config-file-path]
-  (with-open [config-file (java.io.PushbackReader. (reader config-file-path))]
-    (read config-file)))
+  (if config-file-path
+    (let [file-params (with-open [config-file (java.io.PushbackReader. (reader config-file-path))]
+                        (read config-file))]
+      (if (and (map? file-params)
+               (every? keyword? (keys file-params)))
+        file-params
+        (throw (Exception. (str "The config-file must contain a clojure map whose keys are keywords: " config-file-path)))))
+    {}))
 
 (defn -main
   "AOT-compiled application entry point.
@@ -550,23 +560,47 @@
    from the :geoserver-username and :geoserver-password fields in the
    passed-in map and added to the in-memory hash-map under
    the :geoserver-rest-http-headers entry."
-  [config-file-path]
-  (let [config-params       (read-config-params config-file-path)
-        geoserver-auth-code (str "Basic " (encode-str (str (:geoserver-username config-params)
-                                                           ":"
-                                                           (:geoserver-password config-params))))]
-    (update-geoserver
-     (assoc config-params
-       :geoserver-rest-http-headers {"POST"   {"Accepts"       "application/xml"
-                                               "Content-type"  "application/xml"
-                                               "Authorization" geoserver-auth-code}
-                                     "PUT"    {"Accepts"       "*/*"
-                                               "Content-type"  "text/plain"
-                                               "Authorization" geoserver-auth-code}
-                                     "DELETE" {"Accepts"       "*/*"
-                                               "Content-type"  "*/*"
-                                               "Authorization" geoserver-auth-code}
-                                     })))
+  [& args]
+  (if (empty? args)
+    (-main "-h")
+    (with-command-line args
+      (str "geo-xls: Update a running Geoserver instance from an XLS spreadsheet.\n"
+           "Copyright 2010 Gary W. Johnson (gwjohnso@uvm.edu)\n")
+      [[config-file           i "Path to a clojure file containing a map of configuration parameters."]
+       [spreadsheet-filename  f "Path to the XLS spreadsheet."]
+       [spreadsheet-sheetname s "Sheet name to use from the spreadsheet."]
+       [column-spec           c "Map of required spreadsheet fields to their column letters."]
+       [namespace-prefix      n "URI prefix for constructing namespaces from workspace names."]
+       [geoserver-rest-uri    g "URI of your Geoserver's REST extensions."]
+       [geoserver-username    u "Geoserver admin username."]
+       [geoserver-password    p "Geoserver admin password."]
+       [geoserver-data-dir    d "Path to your Geoserver's data_dir."]]
+      (let [config-file-params  (read-config-params config-file)
+            command-line-params (into {} (remove (comp nil? val)
+                                                 {:spreadsheet-filename  spreadsheet-filename
+                                                  :spreadsheet-sheetname spreadsheet-sheetname
+                                                  :column-spec           column-spec
+                                                  :namespace-prefix      namespace-prefix
+                                                  :geoserver-rest-uri    geoserver-rest-uri
+                                                  :geoserver-username    geoserver-username
+                                                  :geoserver-password    geoserver-password
+                                                  :geoserver-data-dir    geoserver-data-dir}))
+            config-params       (merge config-file-params command-line-params)
+            geoserver-auth-code (str "Basic " (encode-str (str (:geoserver-username config-params)
+                                                               ":"
+                                                               (:geoserver-password config-params))))]
+        (update-geoserver
+         (assoc config-params
+           :geoserver-rest-http-headers {"POST"   {"Accepts"       "application/xml"
+                                                   "Content-type"  "application/xml"
+                                                   "Authorization" geoserver-auth-code}
+                                         "PUT"    {"Accepts"       "*/*"
+                                                   "Content-type"  "text/plain"
+                                                   "Authorization" geoserver-auth-code}
+                                         "DELETE" {"Accepts"       "*/*"
+                                                   "Content-type"  "*/*"
+                                                   "Authorization" geoserver-auth-code}
+                                         })))))
   ;; Exit cleanly.
   (shutdown-agents)
   (flush)

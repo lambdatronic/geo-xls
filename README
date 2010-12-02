@@ -2,6 +2,32 @@
 
 FIXME: write description
 
+    (str "geo-xls: Update a running Geoserver instance from an XLS spreadsheet.\n"
+         "Copyright 2010 Gary Johnson\n")
+    [[config-file           cfg   (str "Path to a clojure file containing a map of all remaining\n"
+                                       "input parameters as keywords to strings, except for the\n"
+                                       "column-spec, whose value should be a clojure map.  If this\n"
+                                       "is passed, any other command-line options will override the\n"
+                                       "values read from it.")]
+     [spreadsheet-filename  file  "Path to the XLS spreadsheet."]
+     [spreadsheet-sheetname sheet "Sheet name to use from the spreadsheet."]
+     [column-spec           cols  (str "Map of required spreadsheet fields to their column letters:\n"
+                                       "{:Workspace    :A\n
+                                         :Store        :B\n
+                                         :Layer        :C\n
+                                         :Description  :E\n
+                                         :URI          :F\n
+                                         :DefaultStyle :G\n
+                                         :NativeSRS    :K\n
+                                         :DeclaredSRS} :L")]
+     [namespace-prefix      ns    (str "URI prefix for constructing namespaces from workspace names.\n"
+                                       "Ex: http://www.integratedmodelling.org/geo/ns/")]
+     [geoserver-rest-uri    uri   (str "URI of your Geoserver's REST extensions:\n"
+                                       "Ex: http://ecoinformatics.uvm.edu/geoserver/rest")]
+     [geoserver-username    user  "Geoserver admin username" "admin"]
+     [geoserver-password    pass  "Geoserver admin password" "geoserver"]
+     [geoserver-data-dir    data  "Path to your Geoserver's data_dir"]]
+
 ## Usage
 
 FIXME: write
