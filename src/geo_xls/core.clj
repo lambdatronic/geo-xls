@@ -528,8 +528,10 @@
              "\nFailed requests:"
              (count failed-agents)
              "\n\nErrors:")
-    (doseq [agent-info (map (juxt status message string) failed-agents)]
-      (println agent-info))))
+    (if (empty? failed-agents)
+      (println "None")
+      (doseq [agent-info (map (juxt status message string) failed-agents)]
+        (println agent-info)))))
 
 (defn read-config-params
   "Opens config-file-path as a java.io.PushbackReader and calls the
@@ -564,4 +566,8 @@
                                      "DELETE" {"Accepts"       "*/*"
                                                "Content-type"  "*/*"
                                                "Authorization" geoserver-auth-code}
-                                     }))))
+                                     })))
+  ;; Exit cleanly.
+  (shutdown-agents)
+  (flush)
+  (System/exit 0))
