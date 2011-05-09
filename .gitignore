@@ -1,7 +1,6 @@
 pom.xml
-*jar
 lib
 classes
 next-commit.txt
-geo-xls.sh
-resources
+resources/Geoserver_REST_database.xls
+resources/RESTformat.txt
