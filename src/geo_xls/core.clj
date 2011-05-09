@@ -212,8 +212,11 @@
 
 (defn run-gdal-info
   [geoserver-data-dir uri]
-  (with-sh-dir geoserver-data-dir
-    (:out (sh "gdalinfo" (extract-path uri)))))
+  (println (str "Running gdalinfo with geoserver-data-dir=" geoserver-data-dir " and uri=" uri))
+  (let [gdal-info (with-sh-dir geoserver-data-dir
+                    (:out (sh "gdalinfo" (extract-path uri))))]
+    (println "Success!")
+    gdal-info))
 
 (defn dms->dd
   [dms]
