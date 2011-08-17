@@ -208,7 +208,7 @@
 
 (defn extract-path
   [uri]
-  (second (re-find #"^file:(.*)$" uri)))
+  (second (re-find #"^file:/raid/geodata/(.*)$" uri)))
 
 (defn run-gdal-info
   [geoserver-data-dir uri]
