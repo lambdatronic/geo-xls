@@ -1,4 +1,19 @@
-;;; geo-xls - Copyright 2010-2012 Gary W. Johnson (gwjohnso@uvm.edu)
+;;; Copyright 2010-2012 Gary W. Johnson (lambdatronic@gmail.com)
+;;;
+;;; This file is part of geo-xls.
+;;;
+;;; geo-xls is free software: you can redistribute it and/or modify
+;;; it under the terms of the GNU General Public License as published
+;;; by the Free Software Foundation, either version 3 of the License,
+;;; or (at your option) any later version.
+;;;
+;;; geo-xls is distributed in the hope that it will be useful, but
+;;; WITHOUT ANY WARRANTY; without even the implied warranty of
+;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;; General Public License for more details.
+;;;
+;;; You should have received a copy of the GNU General Public License
+;;; along with geo-xls.  If not, see <http://www.gnu.org/licenses/>.
 ;;;
 ;;; Description:
 ;;;
@@ -103,25 +118,30 @@
   [uri]
   (second (re-find #"^postgis:/raid/geodata/(.*).shp$" uri)))
 
+;; FIXME: Find a way to remove the hard-coded database name.
 (defn add-shapefile-to-postgis-db
-  [{:keys [geoserver-data-dir]} {:keys [Layer URI DeclaredSRS]}]
+  [{:keys [geoserver-data-dir postgis-user]} {:keys [Layer URI DeclaredSRS]}]
   (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
-  (let [result (with-sh-dir geoserver-data-dir
-                 (sh "shp2db"
-                     (remove-epsg-prefix DeclaredSRS)
-                     (extract-postgis-path URI)
-                     Layer))]
-    (println "Result:" (:out result))
-    (let [error (:err result)]
-      (if-not (.isEmpty error)
-        (throw (Exception. (str "shp2db failed: " error)))))))
+  (with-sh-dir geoserver-data-dir
+    (let [sql    (:out
+                  (sh "shp2pgsql"
+                      "-d"
+                      "-I"
+                      "-s"
+                      (remove-epsg-prefix DeclaredSRS)
+                      (extract-postgis-path URI)
+                      Layer))
+          result (sh "psql" "-d" "aries" "-U" postgis-user :in sql)]
+      (if-not (zero? (:exit result))
+        (println (:err result))))))
 
-;; FIXME: Resume here by adding code to run DROP TABLE Layer and DROP
-;;        SEQUENCE Layer_gid_seq against the postgis database.
+;; FIXME: Find a way to remove the hard-coded database name.
 (defn remove-shapefile-from-postgis-db
-  [config-params {:keys [Workspace Store Layer URI]}]
-  (throw (Exception. (str "Removing a Shapefile from a PostGIS Database is not yet supported: "
-                          Workspace ":" Store ":" Layer " (" URI ")"))))
+  [{:keys [postgis-user]} {:keys [Layer]}]
+  (println "remove-shapefile-from-postgis-db" Layer)
+  (let [result (sh "psql" "-d" "aries" "-U" postgis-user :in (str "DROP TABLE " Layer ";"))]
+    (if-not (zero? (:exit result))
+      (println (:err result)))))
 
 (defn create-postgis-feature-type
   [config-params {:keys [Workspace Store Layer Description]}]
@@ -598,7 +618,8 @@
        [geoserver-rest-uri    g "URI of your Geoserver's REST extensions."]
        [geoserver-username    u "Geoserver admin username."]
        [geoserver-password    p "Geoserver admin password."]
-       [geoserver-data-dir    d "Path to your Geoserver's data_dir."]]
+       [geoserver-data-dir    d "Path to your Geoserver's data_dir."]
+       [postgis-user          U "Username for postgis database access."]]
       (let [config-file-params  (read-config-params config-file)
             command-line-params (into {} (remove (comp nil? val)
                                                  {:spreadsheet-filename  spreadsheet-filename
@@ -608,7 +629,8 @@
                                                   :geoserver-rest-uri    geoserver-rest-uri
                                                   :geoserver-username    geoserver-username
                                                   :geoserver-password    geoserver-password
-                                                  :geoserver-data-dir    geoserver-data-dir}))
+                                                  :geoserver-data-dir    geoserver-data-dir
+                                                  :postgis-user          postgis-user}))
             config-params       (merge config-file-params command-line-params)
             geoserver-auth-code (str "Basic " (encode-str (str (:geoserver-username config-params)
                                                                ":"
