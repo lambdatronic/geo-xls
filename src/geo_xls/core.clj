@@ -1,4 +1,4 @@
-;;; geo-xls - Copyright 2010 Gary W. Johnson (gwjohnso@uvm.edu)
+;;; geo-xls - Copyright 2010-2012 Gary W. Johnson (gwjohnso@uvm.edu)
 ;;;
 ;;; Description:
 ;;;
@@ -95,11 +95,29 @@
    (str "/workspaces/" Workspace "/datastores/" Store)
    nil])
 
-(defn add-shapefile-to-postgis-db
-  [config-params {:keys [Workspace Store Layer URI]}]
-  (throw (Exception. (str "Adding a Shapefile to a PostGIS Database is not yet supported: "
-                          Workspace ":" Store ":" Layer " (" URI ")"))))
+(defn remove-epsg-prefix
+  [string]
+  (second (re-find #"^EPSG:(.*)$" string)))
 
+(defn extract-postgis-path
+  [uri]
+  (second (re-find #"^postgis:/raid/geodata/(.*).shp$" uri)))
+
+(defn add-shapefile-to-postgis-db
+  [{:keys [geoserver-data-dir]} {:keys [Layer URI DeclaredSRS]}]
+  (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
+  (let [result (with-sh-dir geoserver-data-dir
+                 (sh "shp2db"
+                     (remove-epsg-prefix DeclaredSRS)
+                     (extract-postgis-path URI)
+                     Layer))]
+    (println "Result:" (:out result))
+    (let [error (:err result)]
+      (if-not (.isEmpty error)
+        (throw (Exception. (str "shp2db failed: " error)))))))
+
+;; FIXME: Resume here by adding code to run DROP TABLE Layer and DROP
+;;        SEQUENCE Layer_gid_seq against the postgis database.
 (defn remove-shapefile-from-postgis-db
   [config-params {:keys [Workspace Store Layer URI]}]
   (throw (Exception. (str "Removing a Shapefile from a PostGIS Database is not yet supported: "
@@ -571,7 +589,7 @@
     (-main "-h")
     (with-command-line args
       (str "geo-xls: Update a running Geoserver instance from an XLS spreadsheet.\n"
-           "Copyright 2010 Gary W. Johnson (gwjohnso@uvm.edu)\n")
+           "Copyright 2010-2012 Gary W. Johnson (gwjohnso@uvm.edu)\n")
       [[config-file           i "Path to a clojure file containing a map of configuration parameters."]
        [spreadsheet-filename  f "Path to the XLS spreadsheet."]
        [spreadsheet-sheetname s "Sheet name to use from the spreadsheet."]
