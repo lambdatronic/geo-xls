@@ -1,4 +1,4 @@
-(defproject org.clojars.lambdatronic/geo-xls "1.0.0-rc2"
+(defproject org.clojars.lambdatronic/geo-xls "1.0.0-rc3"
   :description "geo-xls is a simple command-line script which converts
                 a properly formatted XLS file (see README), describing
                 Workspaces, Data/Coverage Stores, and Layers into the
@@ -7,10 +7,9 @@
   :dependencies     [[org.clojure/clojure "1.2.0"]
                      [org.clojure/clojure-contrib "1.2.0"]
                      [dk.ative/docjure "1.4.0"]]
-  :dev-dependencies [[swank-clojure "1.4.0-SNAPSHOT"]
-                     [clojure-source "1.2.0"]
+  :dev-dependencies [[clojure-source "1.2.0"]
                      [lein-clojars "0.6.0"]]
-  :jvm-opts         ["-agentlib:jdwp=transport=dt_socket,server=y,suspend=n"]
+;;  :jvm-opts         ["-agentlib:jdwp=transport=dt_socket,server=y,suspend=n"]
   :main             geo-xls.core)
 
 ;; For more options to defproject, see:
