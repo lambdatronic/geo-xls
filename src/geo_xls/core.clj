@@ -26,13 +26,16 @@
 (ns geo-xls.core
   (:gen-class)
   (:use [clojure.set                  :only (map-invert)]
-        [clojure.java.io              :only (reader)]
+        [clojure.java.io              :only (reader file)]
         [clojure.java.shell           :only (with-sh-dir sh)]
         [clojure.contrib.prxml        :only (prxml)]
         [clojure.contrib.base64       :only (encode-str)]
         [clojure.contrib.http.agent   :only (http-agent error? status message string)]
         [clojure.contrib.command-line :only (with-command-line)]
-        [dk.ative.docjure.spreadsheet :only (load-workbook select-sheet select-columns)]))
+        [dk.ative.docjure.spreadsheet :only (load-workbook select-sheet select-columns)])
+  (:import (java.io InputStream OutputStream)))
+
+(def *rt* (java.lang.Runtime/getRuntime))
 
 (defn make-rest-request
   [{:keys [geoserver-rest-uri geoserver-rest-http-headers]}
@@ -119,21 +122,62 @@
   (second (re-find #"^postgis:/raid/geodata/(.*).shp$" uri)))
 
 ;; FIXME: Find a way to remove the hard-coded database name.
+;; (defn add-shapefile-to-postgis-db
+;;   [{:keys [geoserver-data-dir postgis-user]} {:keys [Layer URI DeclaredSRS]}]
+;;   (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
+;;   (with-sh-dir geoserver-data-dir
+;;     (let [sql    (:out
+;;                   (sh "shp2pgsql"
+;;                       "-d"
+;;                       "-I"
+;;                       "-s"
+;;                       (remove-epsg-prefix DeclaredSRS)
+;;                       (extract-postgis-path URI)
+;;                       Layer))
+;;           result (sh "psql" "-d" "aries" "-U" postgis-user :in sql)]
+;;       (if-not (zero? (:exit result))
+;;         (println (:err result))))))
+
+(defn pipe
+  "Pipes p1's stdout to p2's stdin."
+  [p1 p2]
+  (with-open [p1-stdout (.getInputStream  p1)
+              p2-stdin  (.getOutputStream p2)]
+    (println "Streams opened...")
+    ;; (let [b (byte-array 524288)]        ; 512KB
+    (let [b (byte-array 10485760)]        ; 10MB
+      (println "Buffer created...")
+      (loop [num-bytes-read (.read p1-stdout b 0 (count b))]
+        (println "Read" num-bytes-read)
+        (if (pos? num-bytes-read)
+          (do (.write p2-stdin b 0 num-bytes-read)
+              (println "Wrote" num-bytes-read)
+              (recur (.read p1-stdout b 0 (count b)))))))))
+
+;; Note: I can't use clojure.java.shell/sh here, because the shp2pgsql
+;;       process blocks if it overflows its output buffer.
+;; FIXME: Find a way to remove the hard-coded database name.
 (defn add-shapefile-to-postgis-db
   [{:keys [geoserver-data-dir postgis-user]} {:keys [Layer URI DeclaredSRS]}]
   (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
-  (with-sh-dir geoserver-data-dir
-    (let [sql    (:out
-                  (sh "shp2pgsql"
-                      "-d"
-                      "-I"
-                      "-s"
-                      (remove-epsg-prefix DeclaredSRS)
-                      (extract-postgis-path URI)
-                      Layer))
-          result (sh "psql" "-d" "aries" "-U" postgis-user :in sql)]
-      (if-not (zero? (:exit result))
-        (println (:err result))))))
+  (let [p1 (.exec *rt*
+                  (into-array ["shp2pgsql" "-d" "-I" "-s" (remove-epsg-prefix DeclaredSRS) (extract-postgis-path URI) Layer])
+                  nil
+                  (file geoserver-data-dir))
+        p2 (.exec *rt* (into-array ["psql" "-d" "aries" "-U" postgis-user]))]
+    (println "Processes created...")
+    (pipe p1 p2)
+    (println "Pipe complete...")
+    (.waitFor p1)
+    (println "Process 1 exited...")
+    (if-not (zero? (.exitValue p1))
+      (with-open [p1-stderr (reader (.getErrorStream p1))]
+        (doseq [line (line-seq p1-stderr)] (println line))))
+    (.waitFor p2)
+    (println "Process 2 exited...")
+    (if-not (zero? (.exitValue p2))
+      (with-open [p2-stderr (reader (.getErrorStream p2))]
+        (doseq [line (line-seq p2-stderr)] (println line))))))
 
 ;; FIXME: Find a way to remove the hard-coded database name.
 (defn remove-shapefile-from-postgis-db
