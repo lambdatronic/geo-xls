@@ -467,8 +467,9 @@
    [http-method uri-suffix http-body].  Each spreadsheet-row may
    contribute one or more of these to the final sequence."
   [config-params spreadsheet-rows]
-  (apply concat
-         (map (partial translate-row config-params) spreadsheet-rows)))
+  (remove nil?
+          (apply concat
+                 (map (partial translate-row config-params) spreadsheet-rows))))
 
 (defn extract-plus-rows
   "Selects all the spreadsheet-rows, whose :Workspace field begins
