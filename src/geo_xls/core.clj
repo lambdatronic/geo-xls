@@ -138,46 +138,58 @@
 ;;       (if-not (zero? (:exit result))
 ;;         (println (:err result))))))
 
-(defn pipe
-  "Pipes p1's stdout to p2's stdin."
-  [p1 p2]
-  (with-open [p1-stdout (.getInputStream  p1)
-              p2-stdin  (.getOutputStream p2)]
-    (println "Streams opened...")
-    ;; (let [b (byte-array 524288)]        ; 512KB
-    (let [b (byte-array 10485760)]        ; 10MB
-      (println "Buffer created...")
-      (loop [num-bytes-read (.read p1-stdout b 0 (count b))]
-        (println "Read" num-bytes-read)
-        (if (pos? num-bytes-read)
-          (do (.write p2-stdin b 0 num-bytes-read)
-              (println "Wrote" num-bytes-read)
-              (recur (.read p1-stdout b 0 (count b)))))))))
-
-;; Note: I can't use clojure.java.shell/sh here, because the shp2pgsql
-;;       process blocks if it overflows its output buffer.
-;; FIXME: Find a way to remove the hard-coded database name.
+;; FIXME: Find a way to remove the hard-coded database and database-user name.
 (defn add-shapefile-to-postgis-db
-  [{:keys [geoserver-data-dir postgis-user]} {:keys [Layer URI DeclaredSRS]}]
+  [{:keys [geoserver-data-dir]} {:keys [Layer URI DeclaredSRS]}]
   (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
-  (let [p1 (.exec *rt*
-                  (into-array ["shp2pgsql" "-d" "-I" "-s" (remove-epsg-prefix DeclaredSRS) (extract-postgis-path URI) Layer])
-                  nil
-                  (file geoserver-data-dir))
-        p2 (.exec *rt* (into-array ["psql" "-d" "aries" "-U" postgis-user]))]
-    (println "Processes created...")
-    (pipe p1 p2)
-    (println "Pipe complete...")
-    (.waitFor p1)
-    (println "Process 1 exited...")
-    (if-not (zero? (.exitValue p1))
-      (with-open [p1-stderr (reader (.getErrorStream p1))]
-        (doseq [line (line-seq p1-stderr)] (println line))))
-    (.waitFor p2)
-    (println "Process 2 exited...")
-    (if-not (zero? (.exitValue p2))
-      (with-open [p2-stderr (reader (.getErrorStream p2))]
-        (doseq [line (line-seq p2-stderr)] (println line))))))
+  (with-sh-dir geoserver-data-dir
+    (let [result (sh "shp2db"
+                     (remove-epsg-prefix DeclaredSRS)
+                     (extract-postgis-path URI)
+                     Layer)]
+      (if-not (zero? (:exit result))
+        (println (:err result))))))
+
+;; (defn pipe
+;;   "Pipes p1's stdout to p2's stdin."
+;;   [p1 p2]
+;;   (with-open [p1-stdout (.getInputStream  p1)
+;;               p2-stdin  (.getOutputStream p2)]
+;;     (println "Streams opened...")
+;;     (let [b (byte-array 524288)]        ; 512KB
+;;     ;; (let [b (byte-array 10485760)]        ; 10MB
+;;       (println "Buffer created...")
+;;       (loop [num-bytes-read (.read p1-stdout b 0 (count b))]
+;;         (println "Read" num-bytes-read)
+;;         (if (pos? num-bytes-read)
+;;           (do (.write p2-stdin b 0 num-bytes-read)
+;;               (println "Wrote" num-bytes-read)
+;;               (recur (.read p1-stdout b 0 (count b)))))))))
+
+;; ;; Note: I can't use clojure.java.shell/sh here, because the shp2pgsql
+;; ;;       process blocks if it overflows its output buffer.
+;; ;; FIXME: Find a way to remove the hard-coded database name.
+;; (defn add-shapefile-to-postgis-db
+;;   [{:keys [geoserver-data-dir postgis-user]} {:keys [Layer URI DeclaredSRS]}]
+;;   (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
+;;   (let [p1 (.exec *rt*
+;;                   (into-array ["shp2pgsql" "-d" "-I" "-s" (remove-epsg-prefix DeclaredSRS) (extract-postgis-path URI) Layer])
+;;                   nil
+;;                   (file geoserver-data-dir))
+;;         p2 (.exec *rt* (into-array ["psql" "-d" "aries" "-U" postgis-user]))]
+;;     (println "Processes created...")
+;;     (pipe p1 p2)
+;;     (println "Pipe complete...")
+;;     (.waitFor p1)
+;;     (println "Process 1 exited...")
+;;     (if-not (zero? (.exitValue p1))
+;;       (with-open [p1-stderr (reader (.getErrorStream p1))]
+;;         (doseq [line (line-seq p1-stderr)] (println line))))
+;;     (.waitFor p2)
+;;     (println "Process 2 exited...")
+;;     (if-not (zero? (.exitValue p2))
+;;       (with-open [p2-stderr (reader (.getErrorStream p2))]
+;;         (doseq [line (line-seq p2-stderr)] (println line))))))
 
 ;; FIXME: Find a way to remove the hard-coded database name.
 (defn remove-shapefile-from-postgis-db
