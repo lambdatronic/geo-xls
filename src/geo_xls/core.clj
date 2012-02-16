@@ -74,9 +74,12 @@
   [uri]
   (second (re-find #"^postgis:(.*)$" uri)))
 
+(def *current-postgis-database* (atom nil))
+
 (defn create-postgis-data-store
   [{:keys [namespace-prefix]} {:keys [Workspace Store Description URI]}]
   (println "create-postgis-data-store" (str Workspace ":" Store))
+  (reset! *current-postgis-database* (extract-dbname URI))
   ["POST"
    (str "/workspaces/" Workspace "/datastores")
    (with-out-str (prxml [:dataStore
@@ -146,7 +149,8 @@
     (let [result (sh "shp2db"
                      (remove-epsg-prefix DeclaredSRS)
                      (extract-postgis-path URI)
-                     Layer)]
+                     Layer
+                     (deref *current-postgis-database*))]
       (if-not (zero? (:exit result))
         (println (:err result))))))
 
