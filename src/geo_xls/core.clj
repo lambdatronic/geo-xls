@@ -77,33 +77,33 @@
 (def *current-postgis-database* (atom nil))
 
 (defn create-postgis-database
-  [config-params {:keys [URI]}]
+  [{:keys [postgis-user]} {:keys [URI]}]
   (println "create-postgis-database" URI)
   (let [dbname (extract-dbname URI)
-        dblist (sh "psql" "-A" "-l" "-U" "postgres")]
+        dblist (sh "psql" "-A" "-l" "-U" postgis-user)]
     (if-not (zero? (:exit dblist))
       (println (:err dblist))
       (if (re-find (re-pattern (str #"\n" dbname)) (:out dblist))
         (println "Database" dbname "already exists.")
-        (let [result (sh "createdb" "-U" "postgres" dbname "-T" "template_spatial")]
+        (let [result (sh "createdb" "-U" postgis-user dbname "-T" "template_spatial")]
           (if-not (zero? (:exit result))
             (println (:err result))))))))
 
 (defn drop-postgis-database
-  [config-params {:keys [URI]}]
+  [{:keys [postgis-user]} {:keys [URI]}]
   (println "drop-postgis-database" URI)
   (let [dbname (extract-dbname URI)
-        dblist (sh "psql" "-A" "-l" "-U" "postgres")]
+        dblist (sh "psql" "-A" "-l" "-U" postgis-user)]
     (if-not (zero? (:exit dblist))
       (println (:err dblist))
       (if (re-find (re-pattern (str #"\n" dbname)) (:out dblist))
-        (let [result (sh "dropdb" "-U" "postgres" dbname)]
+        (let [result (sh "dropdb" "-U" postgis-user dbname)]
           (if-not (zero? (:exit result))
             (println (:err result))))
         (println "Database" dbname "does not exist.")))))
 
 (defn create-postgis-data-store
-  [{:keys [namespace-prefix]} {:keys [Workspace Store Description URI]}]
+  [{:keys [namespace-prefix postgis-user]} {:keys [Workspace Store Description URI]}]
   (println "create-postgis-data-store" (str Workspace ":" Store))
   (reset! *current-postgis-database* (extract-dbname URI))
   ["POST"
@@ -118,7 +118,7 @@
                           [:entry {:key "port"}                         "5432"]
                           [:entry {:key "dbtype"}                       "postgis"]
                           [:entry {:key "database"}                     (extract-dbname URI)]
-                          [:entry {:key "user"}                         "postgres"]
+                          [:entry {:key "user"}                         postgis-user]
 
                           [:entry {:key "namespace"}                    (str namespace-prefix Workspace)]
                           [:entry {:key "schema"}                       "public"]
@@ -136,8 +136,9 @@
                           ]]))])
 
 (defn delete-postgis-data-store
-  [config-params {:keys [Workspace Store]}]
+  [config-params {:keys [Workspace Store URI]}]
   (println "delete-postgis-data-store" (str Workspace ":" Store))
+  (reset! *current-postgis-database* (extract-dbname URI))
   ["DELETE"
    (str "/workspaces/" Workspace "/datastores/" Store)
    nil])
@@ -150,32 +151,16 @@
   [uri]
   (second (re-find #"^postgis:/raid/geodata/(.*).shp$" uri)))
 
-;; FIXME: Find a way to remove the hard-coded database name.
-;; (defn add-shapefile-to-postgis-db
-;;   [{:keys [geoserver-data-dir postgis-user]} {:keys [Layer URI DeclaredSRS]}]
-;;   (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
-;;   (with-sh-dir geoserver-data-dir
-;;     (let [sql    (:out
-;;                   (sh "shp2pgsql"
-;;                       "-d"
-;;                       "-I"
-;;                       "-s"
-;;                       (remove-epsg-prefix DeclaredSRS)
-;;                       (extract-postgis-path URI)
-;;                       Layer))
-;;           result (sh "psql" "-d" "aries" "-U" postgis-user :in sql)]
-;;       (if-not (zero? (:exit result))
-;;         (println (:err result))))))
-
 (defn add-shapefile-to-postgis-db
-  [{:keys [geoserver-data-dir]} {:keys [Layer URI DeclaredSRS]}]
+  [{:keys [geoserver-data-dir postgis-user]} {:keys [Layer URI DeclaredSRS]}]
   (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
   (with-sh-dir geoserver-data-dir
     (let [result (sh "shp2db"
                      (remove-epsg-prefix DeclaredSRS)
                      (extract-postgis-path URI)
                      Layer
-                     (deref *current-postgis-database*))]
+                     (deref *current-postgis-database*)
+                     postgis-user)]
       (if-not (zero? (:exit result))
         (println (:err result))))))
 
@@ -224,7 +209,7 @@
 (defn remove-shapefile-from-postgis-db
   [{:keys [postgis-user]} {:keys [Layer]}]
   (println "remove-shapefile-from-postgis-db" Layer)
-  (let [result (sh "psql" "-d" "aries" "-U" postgis-user :in (str "DROP TABLE " Layer ";"))]
+  (let [result (sh "psql" "-d" *current-postgis-database* "-U" postgis-user :in (str "DROP TABLE " Layer ";"))]
     (if-not (zero? (:exit result))
       (println (:err result)))))
 
