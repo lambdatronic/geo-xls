@@ -76,6 +76,32 @@
 
 (def *current-postgis-database* (atom nil))
 
+(defn create-postgis-database
+  [config-params {:keys [URI]}]
+  (println "create-postgis-database" URI)
+  (let [dbname (extract-dbname URI)
+        dblist (sh "psql" "-A" "-l" "-U" "postgres")]
+    (if-not (zero? (:exit dblist))
+      (println (:err dblist))
+      (if (re-find (re-pattern (str #"\n" dbname)) (:out dblist))
+        (println "Database" dbname "already exists.")
+        (let [result (sh "createdb" "-U" "postgres" dbname "-T" "template_spatial")]
+          (if-not (zero? (:exit result))
+            (println (:err result))))))))
+
+(defn drop-postgis-database
+  [config-params {:keys [URI]}]
+  (println "drop-postgis-database" URI)
+  (let [dbname (extract-dbname URI)
+        dblist (sh "psql" "-A" "-l" "-U" "postgres")]
+    (if-not (zero? (:exit dblist))
+      (println (:err dblist))
+      (if (re-find (re-pattern (str #"\n" dbname)) (:out dblist))
+        (let [result (sh "dropdb" "-U" "postgres" dbname)]
+          (if-not (zero? (:exit result))
+            (println (:err result))))
+        (println "Database" dbname "does not exist.")))))
+
 (defn create-postgis-data-store
   [{:keys [namespace-prefix]} {:keys [Workspace Store Description URI]}]
   (println "create-postgis-data-store" (str Workspace ":" Store))
@@ -141,7 +167,6 @@
 ;;       (if-not (zero? (:exit result))
 ;;         (println (:err result))))))
 
-;; FIXME: Find a way to remove the hard-coded database and database-user name.
 (defn add-shapefile-to-postgis-db
   [{:keys [geoserver-data-dir]} {:keys [Layer URI DeclaredSRS]}]
   (println "add-shapefile-to-postgis-db" Layer URI (str "(" DeclaredSRS ")"))
@@ -507,8 +532,8 @@
             Store
             (if (= store-type "PostGIS Database")
               (if Delete?
-                [(delete-postgis-data-store config-params row)]
-                [(create-postgis-data-store config-params row)])
+                ((juxt delete-postgis-data-store drop-postgis-database) config-params row)
+                ((juxt create-postgis-database create-postgis-data-store) config-params row))
               (throw (Exception. (str "Cannot declare file-based store without layer on same row: " Workspace ":" Store " (" URI ")"))))
 
             :otherwise (throw (Exception. (str "A row with a defined URI must also declare either a new Store or Layer: "
