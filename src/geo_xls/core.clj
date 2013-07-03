@@ -209,7 +209,7 @@
 (defn remove-shapefile-from-postgis-db
   [{:keys [postgis-user]} {:keys [Layer]}]
   (println "remove-shapefile-from-postgis-db" Layer)
-  (let [result (sh "psql" "-d" *current-postgis-database* "-U" postgis-user :in (str "DROP TABLE " Layer ";"))]
+  (let [result (sh "psql" "-d" (deref *current-postgis-database*) "-U" postgis-user :in (str "DROP TABLE " Layer ";"))]
     (if-not (zero? (:exit result))
       (println (:err result)))))
 

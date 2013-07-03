@@ -4,5 +4,6 @@ geo-xls*
 pom.xml
 lib
 classes
+target
 resources/Geoserver_REST_database.xls
 resources/RESTformat.txt
