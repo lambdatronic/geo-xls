@@ -1,0 +1,9 @@
+geo-xls can create or delete workspaces and namespaces, data and
+coverage stores, feature types, coverages, and layers in a running
+RESTConfig-enabled Geoserver instance from instructions in an XLS
+spreadsheet.
+
+For a sample config file and spreadsheet, see the resources directory.
+
+For further questions, contact the author (Gary W. Johnson) at
+lambdatronic@gmail.com.
